@@ -1,0 +1,6 @@
+# ignore Java class files
+*.class
+
+# ignore libraries you must download on your own from ST
+lib/slf4j-api.jar
+lib/st-server-api.jar
