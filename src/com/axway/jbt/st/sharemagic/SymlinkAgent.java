@@ -48,7 +48,7 @@ import com.valicert.brules.executionengine.BaseAgent;
  */
 public class SymlinkAgent extends BaseAgent {
 
-    final static Logger eventlog = LoggerFactory.getLogger("events-"+SymlinkAgent.class.getName());
+    final static Logger logger = LoggerFactory.getLogger(SymlinkAgent.class.getName());
     
     /**
      * A simple "struct" style class to keep track of the
@@ -75,28 +75,28 @@ public class SymlinkAgent extends BaseAgent {
      */
     private Collection<SharedSubscription> getSharedSubscriptions() {
         ArrayList<SharedSubscription> result = new ArrayList<SharedSubscription>();
-        AccountManager am = Factory.getInstance().getAccountManager();
-        ApplicationManager lm = Factory.getInstance().getApplicationManager();
-        SubscriptionCriterion me = lm.getSubscriptionCriterion().account(am.newAccountId(getEnvironmentVariable(Events.DXAGENT_ACCOUNT_ID)));
-        for (Subscription sub : lm.getSubscriptions(me)) {
+        AccountManager accts = Factory.getInstance().getAccountManager();
+        ApplicationManager apps = Factory.getInstance().getApplicationManager();
+        SubscriptionCriterion me = apps.getSubscriptionCriterion().account(accts.newAccountId(getEnvironmentVariable(Events.DXAGENT_ACCOUNT_ID)));
+        for (Subscription sub : apps.getSubscriptions(me)) {
             String folder = sub.getFolderPath();
-            String notes;
             try {
-                notes = lm.getApplication(sub.getApplicationId()).getNotes();
+                String notes = apps.getApplication(sub.getApplicationId()).getNotes();
+                Matcher m = NOTES.matcher(notes);
+                if (m.matches()) {
+                    String target = m.group(1);
+                    if (folder.equals("/")) {
+                        logger.warn("SYM000: subscription at / share="+target+" ignored");
+                    } else if (Files.exists(FileSystems.getDefault().getPath(target))) {
+                        result.add(new SharedSubscription(folder, target));
+                        logger.debug("SYM001: subscription at "+folder+" share="+target);
+                    } else {
+                        logger.warn("SYM002: subscription at "+folder+" share="+target+": target doesn't exist -- ignored");
+                    }
+                }
             } catch (NoSuchApplicationException e) {
                 // just log and ignore it -- shouldn't happen
-                eventlog.debug("getApplication for "+folder+" failed");
-                notes = "";
-            }
-            Matcher m = NOTES.matcher(notes);
-            if (m.matches()) {
-                String target = m.group(1);
-                if (Files.exists(FileSystems.getDefault().getPath(target))) {
-                    result.add(new SharedSubscription(folder, target));
-                    eventlog.debug("subscription at "+folder+" shared at "+target);
-                } else {
-                    eventlog.debug("subscription at "+folder+" shared at "+target+", which doesn't exist -- ignored");
-                }
+                logger.error("SYM003: subscription at "+folder+": getApplication failed!");
             }
         }
         return result;
@@ -114,7 +114,7 @@ public class SymlinkAgent extends BaseAgent {
         {
             if (attrs.isSymbolicLink() && Files.isDirectory(file)) {
                 result.add(file);
-                eventlog.debug("found shared folder "+file);
+                logger.debug("SYM004: shared folder at "+file);
             }
             return FileVisitResult.CONTINUE;
         }
@@ -135,7 +135,7 @@ public class SymlinkAgent extends BaseAgent {
             SymlinkFinder walker = new SymlinkFinder(result);
             Files.walkFileTree(home, walker);
         } catch (IOException e) {
-            // TODO Auto-generated catch block
+            // ignore it, but let's have a look at the trace
             e.printStackTrace();
         }
         return result;
@@ -160,19 +160,19 @@ public class SymlinkAgent extends BaseAgent {
                         // everything matches up -- remove from the collections
                         folders.remove(sub.link);
                         i.remove();
-                        eventlog.debug("shared folder is correct: "+sub.link+" -> "+sub.target);
+                        logger.debug("SYM005: "+sub.link+" -> "+sub.target+" is correct");
                     } else {
                         // leave things alone: the folders entry will cause the existing share to be removed,
                         // and the shares entry will cause a new symlink to be created.
-                        eventlog.debug("shared folder is incorrect: "+sub.link+" -> "+target+" should be "+sub.target);
+                        logger.debug("SYM006: "+sub.link+" -> "+target+" is incorrect and will be updated to "+sub.target);
                     }
                 } catch (IOException e) {
                     // Bad symlink, so treat it like a mismatch and we'll try to remove and recreate it.
-                    eventlog.debug("error resolving symlink: "+e);
+                    logger.warn("SYM007: "+sub.link+" -> ? error resolving symlink: "+e);
                 }
             } else {
                 // looks like a newly found subscription, so let it get linked in the next phase
-                eventlog.debug("found new shared folder: "+sub.link+" -> "+sub.target);
+                logger.debug("SYM008: "+sub.link+" -> "+sub.target+" is missing and will be added");
             }
         }
     }
@@ -206,10 +206,10 @@ public class SymlinkAgent extends BaseAgent {
                 }
             });
         } catch (IOException e) {
-            eventlog.error("could not purge \""+folder+"\": "+e);
+            logger.error("SYM009: purge folder \""+folder+"\" failed: "+e);
             return false;
         }
-        eventlog.debug("purged folder \""+folder+"\"");
+        logger.debug("SYM010: purge folder \""+folder+"\" succeeded");
         return true;
     }
 
@@ -223,7 +223,7 @@ public class SymlinkAgent extends BaseAgent {
         if (Files.isDirectory(folder)) {
             try {
                 Files.delete(folder);
-                eventlog.debug("deleted empty folder \""+folder+"\"");
+                logger.debug("SYM011: delete empty folder \""+folder+"\" succeeded");
                 return true;
             } catch (DirectoryNotEmptyException e) {
                 // maybe it is just the .stfs directory
@@ -233,7 +233,7 @@ public class SymlinkAgent extends BaseAgent {
                 }
             } catch (IOException e) {
                 // some other problem, but there isn't much to do in this case
-                eventlog.error("error deleting folder \""+folder+"\": "+e);
+                logger.error("SYM012: delete empty folder \""+folder+"\" failed: "+e);
             }
         }
         return false;
@@ -250,9 +250,9 @@ public class SymlinkAgent extends BaseAgent {
         for (Path folder : folders) {
             try {
                 Files.delete(folder);
-                eventlog.debug("deleted symlink \""+folder+"\"");
+                logger.debug("SYM013: delete symlink \""+folder+"\" succeeded");
             } catch (IOException e) {
-                eventlog.error("could not delete incorrect symlink\""+folder+"\": "+e);
+                logger.error("SYM014: delete symlink \""+folder+"\" failed: "+e);
             }
             folder = folder.getParent();
             while (folder != null && folder.compareTo(home) != 0 && deleteEmptyFolder(folder)) {
@@ -274,9 +274,9 @@ public class SymlinkAgent extends BaseAgent {
         }
         try {
             Files.move(path, path.resolveSibling(rename+"."+i));
-            eventlog.error("renamed existing folder to "+path+"."+i);
+            logger.debug("SYM015: rename folder \""+rename+"\" to \""+rename+"."+i+"\" succeeded");
         } catch (IOException e) {
-            eventlog.error("unable to rename existing folder "+path);
+            logger.error("SYM016: rename folder \""+rename+"\" to \""+rename+"."+i+"\" failed: "+e);
         }
     }
 
@@ -295,9 +295,9 @@ public class SymlinkAgent extends BaseAgent {
             }
             try {
                 Files.createSymbolicLink(sub.link, sub.target);
-                eventlog.debug("linked "+sub.link+" -> "+sub.target);
+                logger.debug("SYM017: link "+sub.link+" -> "+sub.target+" succeeded");
             } catch (IOException e) {
-                eventlog.error("unable to link "+sub.link+" -> "+sub.target+": "+e);
+                logger.error("SYM018: link "+sub.link+" -> "+sub.target+" failed: "+e);
             }
         }
     }

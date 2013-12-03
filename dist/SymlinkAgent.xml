@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?> 
+<brpackage xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="1.0" xsi:noNamespaceSchemaLocation="businessrules.xsd" name="SymlinkAgent.xml">
+    <rule name="Symlink Agent" type="static" precedence="75">
+        <condition>
+            <item>
+                <attribute>EventType</attribute>
+                <comparator name="equal" />
+                <value>Login</value>
+            </item>
+        </condition>
+        <action Order="yes">           
+            <inprocess-agent id="1" executeafter="" streamaccess="none" wait="yes"
+                class="com.axway.jbt.st.sharemagic.SymlinkAgent"/>
+            <inprocess-agent id="2" executeafter="1" streamaccess="none" wait="yes"
+                class="com.tumbleweed.st.server.tm.agents.NextPrecedence"/>
+        </action>
+    </rule>
+</brpackage>
